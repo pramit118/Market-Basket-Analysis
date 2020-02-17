@@ -1,0 +1,124 @@
+library(readr)     
+library(lubridate) 
+library(arules)
+library(readxl)
+library(sqldf)
+library(stringr)
+library(knitr)
+
+
+
+OnlineRetail <- read.csv("C:\\Users\\Pramit\\Desktop\\PRAXIS\\CAPP\\Online Retail (1).csv")
+descblank=OnlineRetail[OnlineRetail$Description == "",]#Description Blank
+
+#Single occurence Invoices
+single.trans <- sqldf("select InvoiceNo, count(*) as itemcount from OnlineRetail group by InvoiceNo having count(*)<=1")
+View(single.trans)
+sum(single.trans$itemcount)
+
+#Multiple Occurences Invoices
+x2 <- sqldf("select InvoiceNo, count(*) as itemcount from OnlineRetail group by InvoiceNo having count(*) > 1")
+sum(x2$itemcount)
+
+
+#Avg count of invoices
+mean(x2$itemcount)
+hist(x2$itemcount, breaks = 500, xlim = c(0, 50))
+
+
+#Removing Single occurence invoices
+OnlineRetail <- merge(OnlineRetail, x2, by = "InvoiceNo")
+descblank=OnlineRetail[OnlineRetail$Description == "",]
+
+#Extracting First and last word for have categories
+OnlineRetail$lastword <- word(OnlineRetail$Description, -1)
+OnlineRetail$Description <- trimws(OnlineRetail$Description, "l")
+OnlineRetail$firstword <- word(OnlineRetail$Description, 1)
+kable(OnlineRetail[1:5, c(3, 10:11)], padding = 0)
+
+kable(head(as.data.frame(sort(table(OnlineRetail$lastword[]), decreasing = TRUE)),10))
+sort(table(OnlineRetail$lastword[]), decreasing = TRUE)
+
+kable(head(as.data.frame(sort(table(OnlineRetail$lastword[]), decreasing = TRUE)), 
+           10))
+sort(table(OnlineRetail$lastword[]), decreasing = TRUE)
+
+#Filling the missing values in the lastword column
+lastwordblank=OnlineRetail[OnlineRetail$lastword == "",]
+OnlineRetail$lastword <- ifelse(OnlineRetail$lastword == "", OnlineRetail$firstword, 
+                                OnlineRetail$lastword)
+
+head(as.data.frame(sort(table(OnlineRetail$lastword[]), decreasing = TRUE)) ,10)
+sort(table(OnlineRetail$lastword[]), decreasing = TRUE)
+
+head(OnlineRetail)
+order_count <- length(unique(OnlineRetail$InvoiceNo))
+order_count
+
+
+#Country-wise transations
+country_trans <- aggregate(OnlineRetail$InvoiceNo,list(OnlineRetail$Country),length) 
+country_trans
+head(country_trans)
+country_trans[which.max(country_trans$x),]
+
+
+#length(unique(OnlineRetail$StockCode))
+#oDesc_stock<-aggregate(OnlineRetail$StockCode,list(OnlineRetail$Description),length)
+
+
+#Quanityty of each items purchased on total
+a=aggregate(Quantity~Description,data = OnlineRetail,FUN = sum)
+a=a[order(-a$Quantity),] 
+rownames(a)=1:nrow(a)
+k=head(a,10)
+View(k)
+
+nrow(oDesc_stock)
+head(oDesc_stock)
+colnames(OnlineRetail)
+total_entries <- length(unique(OnlineRetail$InvoiceNo))#Unique Invoice
+length(unique(OnlineRetail$StockCode))#Unique Items
+
+
+OnlineRetail_valid <- OnlineRetail[-grep("[A-Z]",OnlineRetail$InvoiceNo),]
+OnlineRetail_valid <- OnlineRetail[-grep("[A-Z]",OnlineRetail$StockCode),]
+Desc_stock <- aggregate(OnlineRetail_valid$StockCode,list(OnlineRetail_valid$Description),length)
+head(Desc_stock)
+OnlineRetail_valid_1 <- OnlineRetail_valid[-grep("[a-z]",OnlineRetail_valid$Description),]
+
+valid_entries <- length(unique(OnlineRetail_valid_1$InvoiceNo))
+invalid_entries <- total_entries - valid_entries
+c(invalid_entries, valid_entries)
+
+
+
+#What all items have been purhased in each invoices
+OnlineRetail_valid_1$Desc2=as.character(OnlineRetail_valid_1$Description)
+transaction_detail <- aggregate(OnlineRetail_valid_1$Description ~ OnlineRetail_valid_1$InvoiceNo,
+                                FUN=paste,collapse=',')
+head(transaction_detail)
+write.csv(transaction_detail,"Transaction details.csv")
+getwd()
+
+#Itemset
+itemsets<-transaction_detail[,-1]
+head(itemsets)
+
+#Apriori Rule
+write(itemsets,"CAPP_MT.csv")
+itemsets_txn<-read.transactions("CAPP_MT.csv",format="basket",rm.duplicates=TRUE,sep=",")
+itemsets_txn
+rules<-apriori(itemsets_txn,parameter=list(supp=0.005,conf=0.7,minlen=2)) 
+summary(rules)
+rules_df<- as(rules,"data.frame")
+head(rules_df)
+
+orderbysupport <- as.data.frame(arules::inspect(head(sort(rules, by = "support"), 10)))#Order by Support
+orderbyconf <- as.data.frame(arules::inspect(head(sort(rules, by = "confidence"), 10)))#order by Confidence
+orderbylift <- as.data.frame(arules::inspect(head(sort(rules, by = "lift"), 10)))#Order by Lift
+
+
+write.csv(rules_df,file="CAPP_FINAL_MT.csv") 
+final_recomm <- read_csv("CAPP_FINAL_MT.csv")
+nrow(final_recomm)
